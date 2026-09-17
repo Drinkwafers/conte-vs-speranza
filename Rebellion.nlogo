@@ -29,7 +29,6 @@ agents-own [
 ]
 
 patches-own [
-  neighborhood        ; surrounding patches within the vision radius
 ]
 
 to setup
@@ -52,15 +51,15 @@ to setup
   ask patches [
     ; make background a slightly dark gray
     set pcolor gray - 1
-    ; cache patch neighborhoods
-    set neighborhood patches in-radius vision
   ]
 
   ; create agents
   create-agents round (initial-agent-density * .01 * count patches) [
     move-to one-of patches with [ not any? turtles-here ]
     set heading 0
-    set perceived-hardship random-float 1.0
+    ; disagio iniziale distribuito uniformemente nel range [INITIAL-HARDSHIP-MIN, INITIAL-HARDSHIP-MAX]:
+    ; con i default (0, 1) il comportamento e' identico a "random-float 1.0" di prima
+    set perceived-hardship (initial-hardship-min + random-float (initial-hardship-max - initial-hardship-min))
     set active? false
     ; soglia individuale distribuita normalmente attorno a THRESHOLD (deviazione standard = THRESHOLD-SPREAD
     ; volte il valore centrale): e' questa dispersione, non la forma della curva di transizione, il vero
@@ -87,8 +86,6 @@ to go
   ; il bersaglio condiviso avanza di un passo (una volta sola, non per agente)
   update-eased-equilibrium
   ask agents [
-    ; Rule M: Move to a random site within your vision
-    if movement? [ move ]
     ; il disagio rilassa verso l'equilibrio del lockdown fisso di questa run
     update-hardship
     ; Rule A: Determine if each agent should withdraw consensus or stay quiet
@@ -111,13 +108,6 @@ to-report current-lockdown-level
 end
 
 ; AGENT BEHAVIOR
-
-; move to an empty patch
-to move ; agent procedure
-  ; move to an empty patch within vision
-  let targets neighborhood with [ not any? turtles-here ]
-  if any? targets [ move-to one-of targets ]
-end
 
 ; il disagio percepito rilassa (a velocita' RELAXATION-RATE, scalata da TRANSITION-SCALE)
 ; verso EASED-EQUILIBRIUM -- il bersaglio morbido, non il vero equilibrio del lockdown:
@@ -256,9 +246,9 @@ ticks
 
 SLIDER
 9
-125
+85
 214
-158
+118
 max-ticks
 max-ticks
 10
@@ -271,9 +261,9 @@ HORIZONTAL
 
 SLIDER
 219
-125
+85
 318
-158
+118
 rng-seed
 rng-seed
 0
@@ -285,10 +275,10 @@ NIL
 HORIZONTAL
 
 BUTTON
-10
-205
-80
-238
+6
+235
+76
+268
 NIL
 setup
 NIL
@@ -302,10 +292,10 @@ NIL
 1
 
 BUTTON
-10
-250
-80
-283
+6
+280
+76
+313
 NIL
 go
 T
@@ -319,10 +309,10 @@ NIL
 0
 
 SLIDER
-10
-300
-210
-333
+6
+330
+206
+363
 government-legitimacy
 government-legitimacy
 0.0
@@ -334,10 +324,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-365
-490
-565
-523
+97
+140
+297
+173
 threshold-spread
 threshold-spread
 0.0
@@ -348,53 +338,57 @@ threshold-spread
 x soglia media
 HORIZONTAL
 
+SLIDER
+97
+178
+297
+211
+initial-hardship-min
+initial-hardship-min
+0.0
+1.0
+0.0
+0.05
+1
+NIL
+HORIZONTAL
+
+SLIDER
+97
+216
+297
+249
+initial-hardship-max
+initial-hardship-max
+0.0
+1.0
+1.0
+0.05
+1
+NIL
+HORIZONTAL
+
 MONITOR
-115
-410
-205
-455
+670
+426
+760
+471
 active (red)
 count agents with [active?]
 3
 1
 11
 
-SLIDER
-10
-86
-215
-119
-vision
-vision
-0.0
-10.0
-7.0
-.1
-1
-patches
-HORIZONTAL
-
 MONITOR
-10
-410
-110
-455
+670
+480
+770
+525
 quiet (green)
 count agents with [not active?]
 1
 1
 11
-
-SWITCH
-10
-335
-149
-368
-movement?
-movement?
-0
-1
--1000
 
 BUTTON
 10
@@ -446,10 +440,10 @@ initial-agent-density
 HORIZONTAL
 
 MONITOR
-95
-200
-177
-245
+226
+267
+308
+312
 # of agents
 count agents
 3
@@ -457,10 +451,10 @@ count agents
 11
 
 PLOT
-10
-458
-345
-618
+328
+426
+663
+586
 Consenso elettorale
 time
 % cittadini
@@ -487,10 +481,10 @@ Initial settings
 0
 
 BUTTON
-85
-250
-179
-283
+81
+280
+175
+313
 watch one
 set visualization \"3D\"\nask max-one-of agents [grievance]\n  [ set size 2 watch-me ]
 NIL
@@ -504,10 +498,10 @@ NIL
 0
 
 CHOOSER
-180
-250
-318
-295
+220
+319
+312
+364
 visualization
 visualization
 "2D" "3D"

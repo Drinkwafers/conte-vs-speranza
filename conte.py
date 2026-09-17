@@ -27,15 +27,16 @@ LOCKDOWN_MAX = 0.85
 
 PARAMETRI_SOLO_SETUP = {
     "initial-agent-density": 70,
-    "vision": 7,
     "rng-seed": 42,
     "threshold-spread": 0.6,
+    # Variabili che controllano l'intervallo del disagio
+    "initial-hardship-min": 0.0, # più è alta più la gente partirà con disagio più alto
+    "initial-hardship-max": 1.0, # più è bassa più la gente partirà con disagio più basso
 }
 
 PARAMETRI_COMUNI = {
     "max-ticks": 30,
-    "government-legitimacy": 0.82,
-    "movement?": True,
+    "government-legitimacy": 0.82, # più è alta più la gente si fida del governo
     "scale-intensity": 0.05,
     "relaxation-rate": 0.05,
     "transition-duration": 30,
