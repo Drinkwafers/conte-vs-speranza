@@ -323,11 +323,6 @@ def negozia(messaggio_ministro, lockdown_equilibrium_corrente=0.5, percorso_stat
         "csv_storico": percorso_csv_sessione(session_id),
     }
 
-
-# ============================================================================
-# 5. CLI STANDALONE
-# ============================================================================
-
 def main():
     esito = negozia(proposta_ministro)
     print(esito["risposta_presidente"])
