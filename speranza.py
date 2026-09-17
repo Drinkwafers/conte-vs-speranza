@@ -8,6 +8,8 @@ import pynetlogo
 
 contagiati = 0
 
+accordo_speranza = False
+
 # Inizializzazione del link con NetLogo
 netlogo = pynetlogo.NetLogoLink(
     gui=False,
@@ -17,6 +19,7 @@ netlogo = pynetlogo.NetLogoLink(
 # Inizializzazione del client Gemini
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
+'''
 parametri_correnti = {
     "virus-spread-chance": 5.0,
     "virus-check-frequency": 7,
@@ -29,7 +32,7 @@ proposta_presidente = (
     "di mobilità tra le regioni. Ti chiedo di allentare le restrizioni e diradare i controlli, "
     "dobbiamo far ripartire l'economia."
 )
-'''
+
 system_prompt = (
     "Sei il Ministro della Salute della Repubblica Italiana. Il tuo interlocutore è il Presidente del Consiglio dei Ministri. "
     "Il tuo obiettivo primario è preservare la salute dei cittadini e la tenuta del Servizio Sanitario Nazionale (SSN).\n\n"
@@ -48,34 +51,6 @@ chat = client.chats.create(
         temperature=0.1,
     ),
 )
-
-def verifica_accordo(risposta):
-    system_prompt_verifica = (
-        "Sei un valutatore imparziale di una trattazione politica tra il Presidente del Consiglio e il Ministro della Salute. "
-        "Analizza l'ultima risposta fornita."
-        "Devi determinare se le parti hanno raggiunto un accordo definitivo o se la trattazione è ancora aperta/rifiutata. "
-        "Restituisci esclusivamente un oggetto JSON con una chiave booleana 'accordo' (true se c'è accordo, false altrimenti) "
-    )
-    
-    user_content = (
-        f"Risposta del Ministro della Salute: \"{risposta}\"\n\n"
-        "C'è stato un accordo?"
-    )
-
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=user_content,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt_verifica,
-            temperature=0.0,
-            response_mime_type="application/json",
-        ),
-    )
-
-    
-    risultato = json.loads(response.text)
-    print(risultato)
-    return risultato.get("accordo", False)
 
 def estrai_parametri_da_proposta(proposta_presidente):
 
@@ -139,9 +114,9 @@ def esegui_simulazione_netlogo(
 
     return netlogo.report("count turtles with [dead?]")
 
-def genera_risposta(total_dead, proposta_presidente, accordo):
+def genera_risposta(total_dead, proposta_presidente, accordo_speranza):
 
-    if not accordo:
+    if not accordo_speranza:
         # Leggiamo l'intero file CSV esportato da NetLogo
         df = pd.read_csv("dati_ospedale.csv")
         
@@ -173,16 +148,17 @@ def genera_risposta(total_dead, proposta_presidente, accordo):
     "Mantieni un tono istituzionale, fluido e discorsivo, basandoti sull'andamento generale senza sovraccaricare il testo di numeri."
     )
 
-
     response = chat.send_message(user_content)
 
     return response
 
-def rispondi(proposta_presidente):
+def rispondi(proposta_presidente, accordo):
 
-    accordo = verifica_accordo(proposta_presidente)
+    global accordo_speranza
 
-    if not accordo:
+    accordo_speranza = accordo
+
+    if not accordo_speranza:
 
         global parametri_correnti
         
@@ -199,9 +175,9 @@ def rispondi(proposta_presidente):
     else:
         total_dead = 0
     # Generazione della risposta al Presidente del Consiglio
-    risposta = genera_risposta(total_dead, proposta_presidente, accordo)
+    risposta = genera_risposta(total_dead, proposta_presidente, accordo_speranza)
 
-    print(risposta.text)
+    return risposta
 
 def inizio(contagiati_perc):
 
@@ -233,7 +209,7 @@ def inizio(contagiati_perc):
         "- Degenza Ordinaria: 3 ogni 1000 abitanti.\n"
         "- Terapia Intensiva (TI): 0,13 ogni 1000 abitanti (alla comparsa di un singolo caso, valuta attentamente le azioni da intraprendere in base al contesto).\n\n"
         "Quello che andrai a scrivere è il primo messaggio da inviare al Presidente del Consiglio; i dati a tua disposizione sono quelli della simulazione iniziale.\n"
-        "Informa sinteticamente il Presidente su come potrebbe evolvere la situazione fino al suo picco, senza entrare troppo nei dettagli tecnici della simulazione. "
+        "Informa sinteticamente (essenziale! non entrare nei dettagli!!) il Presidente su come potrebbe evolvere la situazione fino al suo picco. "
         "Formula una proposta molto severa e dettagliata per la gestione dell'emergenza sanitaria, basandoti sui dati emersi e concentrandoti in particolar modo su un piano di contenimento dei contagi che sia proporzionato alla gravità del quadro generale. "
         "Mantieni un tono istituzionale, fluido e discorsivo, focalizzandoti sull'andamento globale senza sovraccaricare il testo con troppi dati numerici."
     )
@@ -249,32 +225,8 @@ def inizio(contagiati_perc):
         f"Tabella completa dei dati: {tabella_completa}\n"
         "Genera un messaggio istituzionale al Presidente del Consiglio, informandolo della situazione attuale e formulando una proposta di gestione della situazione sanitaria."
     )
-
+    
     response = chat.send_message(user_content)
 
     return response
     
-
-# --- Esecuzione principale ---
-
-aaa = inizio(0.1)
-
-print (aaa.text)
-
-print(parametri_correnti)
-
-risposta = rispondi(proposta_presidente)
-
-print(risposta.text)
-
-
-
-
-
-
-
-
-
-
-
-
