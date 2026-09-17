@@ -70,7 +70,6 @@ to go
   ;; Condizione di stop: stampa statistiche ed esportazione CSV
   if all? turtles [not infected?]
   [ 
-    print-stats
     export-data
     stop 
   ]
@@ -223,21 +222,6 @@ to recover-logic
     [ become-susceptible ]
 end
 
-to print-stats
-  print "--- STATISTICHE FINALI OSPEDALE ---"
-  print (word "Totale pazienti finiti in Degenza Ordinaria: " cumulative-ward)
-  print (word "Totale pazienti finiti in Terapia Intensiva: " cumulative-icu)
-  print (word "Decessi in Degenza Ordinaria: " deaths-ward)
-  print (word "Decessi in Terapia Intensiva: " deaths-icu)
-  
-  let avg-ward 0
-  if cumulative-ward > 0 [ set avg-ward (precision (total-ward-days / cumulative-ward) 2) ]
-  print (word "Tempo medio di degenza in Ordinaria (giorni): " avg-ward)
-  
-  let avg-icu 0
-  if cumulative-icu > 0 [ set avg-icu (precision (total-icu-days / cumulative-icu) 2) ]
-  print (word "Tempo medio di degenza in Terapia Intensiva (giorni): " avg-icu)
-end
 
 to export-data
   if file-exists? "dati_ospedale.csv" [ file-delete "dati_ospedale.csv" ]
@@ -251,7 +235,6 @@ to export-data
   ]
   
   file-close
-  print "Dati esportati con successo nel file 'dati_ospedale.csv'"
 end
 
 
