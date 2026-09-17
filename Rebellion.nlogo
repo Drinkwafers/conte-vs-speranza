@@ -2,8 +2,8 @@ breed [ agents an-agent ]
 
 globals [
   threshold                   ; by how much must G exceed the threshold to make someone withdraw consensus?
-  lockdown-level              ; 0 = nessuna restrizione, 1 = parziale, 2 = totale (deciso dal chooser LOCKDOWN-CONFIG)
-  previous-lockdown-level     ; livello di lockdown della run precedente (0 se e' la prima run, altrimenti arriva da IMPORT-WORLD)
+  lockdown-target              ; equilibrio di disagio target, 0-0.75 (deciso dallo slider LOCKDOWN-EQUILIBRIUM), congelato a inizio run
+  previous-lockdown-target     ; equilibrio target della run precedente (0 se e' la prima run, altrimenti arriva da IMPORT-WORLD)
   transition-scale            ; moltiplicatore (calcolato una volta a inizio run) che scala la velocita' di convergenza
                                ; per l'intera durata del periodo, in base al salto rispetto al periodo precedente
   eased-equilibrium           ; bersaglio "morbido" verso cui rilassano i cittadini: segue una curva a S
@@ -44,9 +44,9 @@ to setup
   ; la prima run parte sempre da "nessuna restrizione" come punto di riferimento:
   ; SETUP non puo' mai essere il percorso per proseguire una run caricata (fa clear-all),
   ; quindi qui non serve gestire il caso "run precedente"
-  set previous-lockdown-level 0
+  set previous-lockdown-target 0
   ; il bersaglio morbido parte allineato al punto di riferimento (nessuna restrizione = disagio 0):
-  set start-equilibrium (equilibrium-for-level previous-lockdown-level)
+  set start-equilibrium previous-lockdown-target
   set eased-equilibrium start-equilibrium
 
   ask patches [
@@ -107,15 +107,7 @@ end
 ; per cambiarla si avvia una nuova run (SETUP oppure "Carica stato salvato...")
 
 to-report current-lockdown-level
-  if lockdown-config = "Nessuna restrizione" [ report 0 ]
-  if lockdown-config = "Lockdown parziale" [ report 1 ]
-  report 2 ; "Lockdown totale"
-end
-
-to-report lockdown-label
-  if lockdown-level = 0 [ report "nessuna restrizione" ]
-  if lockdown-level = 1 [ report "lockdown parziale" ]
-  report "lockdown totale"
+  report lockdown-equilibrium
 end
 
 ; AGENT BEHAVIOR
@@ -148,8 +140,7 @@ end
 ; SETUP che il caricamento di uno stato salvato chiamano RESET-TICKS subito prima.
 to update-eased-equilibrium
   let progress ifelse-value (transition-duration <= 0) [ 1 ] [ ticks / transition-duration ]
-  let target (equilibrium-for-level lockdown-level)
-  set eased-equilibrium start-equilibrium + ((target - start-equilibrium) * (smoothstep progress))
+  set eased-equilibrium start-equilibrium + ((lockdown-target - start-equilibrium) * (smoothstep progress))
 end
 
 ; curva a S canonica (3x^2 - 2x^3): 0 quando x <= 0, 1 quando x >= 1, pendenza zero a entrambi
@@ -159,40 +150,34 @@ to-report smoothstep [x]
   report (3 * c * c) - (2 * c * c * c)
 end
 
-; EQUILIBRIO DI DISAGIO PER LIVELLO DI LOCKDOWN (hardcodato, calibrato sui dati)
-; a differenza di un moltiplicatore lineare unico, i due livelli di restrizione
-; sono scollegati: si possono calibrare indipendentemente sui dati storici senza
-; che uno trascini l'altro per un rapporto fisso. Con GOVERNMENT-LEGITIMACY = 0.82
-; e la soglia di dissenso individuale distribuita attorno a 0.1 (vedi MY-THRESHOLD),
-; l'hardship critico oltre cui un cittadino medio ritira il consenso e'
-; 0.1 / (1 - 0.82) = 0.556: il parziale resta sotto questa soglia media
-; (erosione visibile ma la maggioranza tiene), il totale la supera con un
-; margine deciso (coerente col fatto che il consenso reale non e' mai sceso
-; sotto il 48% nemmeno nella fase peggiore) -- ma essendo MY-THRESHOLD
+; EQUILIBRIO DI DISAGIO: ora e' letto direttamente dallo slider LOCKDOWN-EQUILIBRIUM (0-0.75),
+; niente piu' mappatura da livello discreto a valore calibrato. Con GOVERNMENT-LEGITIMACY = 0.82
+; e la soglia di dissenso individuale distribuita attorno a 0.1 (vedi MY-THRESHOLD), l'hardship
+; critico oltre cui un cittadino medio ritira il consenso e' 0.1 / (1 - 0.82) = 0.556: valori
+; dello slider sotto questa soglia lasciano la maggioranza sostanzialmente al sicuro (erosione
+; visibile ma minoritaria), valori sopra la fanno scendere sotto il 50% -- ma essendo MY-THRESHOLD
 ; individuale, il superamento non avviene per tutti nello stesso istante.
-to-report equilibrium-for-level [lvl]
-  if lvl = 0 [ report 0 ]
-  if lvl = 1 [ report 0.56 ] ; lockdown parziale
-  report 0.75                 ; lockdown totale
-end
 
 ; SCALA DI TRANSIZIONE (leggera, asimmetrica, valida per l'intera durata del periodo)
 ; la misura di lockdown si decide solo a inizio run (a SETUP, oppure caricando lo
 ; stato finale di una run precedente con IMPORT-WORLD): il passaggio dal livello
-; precedente (PREVIOUS-LOCKDOWN-LEVEL) al nuovo livello scelto tramite il chooser
-; LOCKDOWN-CONFIG non genera piu' un salto immediato sul disagio, ma modula (per
+; precedente (PREVIOUS-LOCKDOWN-TARGET) al nuovo equilibrio scelto tramite lo slider
+; LOCKDOWN-EQUILIBRIUM non genera piu' un salto immediato sul disagio, ma modula (per
 ; tutta la durata di questa run) quanto velocemente UPDATE-HARDSHIP converge
 ; all'equilibrio. La modulazione e' asimmetrica e volutamente leggera: inasprire
 ; le restrizioni accelera un po' di piu' la convergenza (verso un equilibrio piu'
 ; alto) di quanto la rallenti allentarle della stessa entita' (ASYMMETRY-RATIO basso).
 to set-transition-scale
   let asymmetry-ratio 0.15 ; allentare pesa solo il 15% di quanto pesa inasprire
-  let salto (current-lockdown-level - previous-lockdown-level)
+  ; normalizzato in [-1, 1] sul range massimo possibile (0.75), cosi' SCALE-INTENSITY
+  ; conserva lo stesso significato ("quanto pesa un salto a piena scala") che aveva
+  ; quando SALTO andava da -2 a +2 sui tre livelli discreti
+  let salto ((current-lockdown-level - previous-lockdown-target) / 0.75)
   ifelse salto > 0
     [ set transition-scale (1 + (salto * scale-intensity)) ]
     [ set transition-scale (1 + (salto * scale-intensity * asymmetry-ratio)) ]
-  set lockdown-level current-lockdown-level
-  set previous-lockdown-level current-lockdown-level
+  set lockdown-target current-lockdown-level
+  set previous-lockdown-target current-lockdown-level
 end
 
 to-report clamp01 [x]
@@ -278,7 +263,7 @@ max-ticks
 max-ticks
 10
 500
-80.0
+90.0
 10
 1
 tick
@@ -538,15 +523,20 @@ Decisione del Presidente del Consiglio
 0.0
 0
 
-CHOOSER
+SLIDER
 793
 195
 1073
-240
-lockdown-config
-lockdown-config
-"Nessuna restrizione" "Lockdown parziale" "Lockdown totale"
-0
+228
+lockdown-equilibrium
+lockdown-equilibrium
+0.35
+0.85
+0.38
+0.01
+1
+NIL
+HORIZONTAL
 
 TEXTBOX
 792
@@ -597,7 +587,7 @@ transition-duration
 transition-duration
 1
 80
-80.0
+30.0
 1
 1
 tick
@@ -608,8 +598,8 @@ MONITOR
 259
 1072
 304
-livello di lockdown attuale
-lockdown-label
+equilibrio di lockdown attuale (target)
+precision lockdown-target 2
 0
 1
 11
@@ -647,23 +637,23 @@ L'epidemia NON viene simulata in dettaglio: e' solo il contesto che giustifica i
 
 Ogni agente rappresenta un cittadino/elettore con un livello di PERCEIVED-HARDSHIP (disagio percepito, 0-1). Il GRIEVANCE (livello di insoddisfazione) e' calcolato come PERCEIVED-HARDSHIP * (1 - GOVERNMENT-LEGITIMACY): la legittimita' di base del governo attutisce o amplifica l'effetto del disagio. Se il GRIEVANCE di un cittadino supera la propria soglia individuale (MY-THRESHOLD, assegnata una volta per tutte a ciascun cittadino e mai piu' modificata, distribuita attorno a THRESHOLD con deviazione standard THRESHOLD-SPREAD volte il valore centrale), il cittadino "ritira il consenso" (ACTIVE? diventa true, colore rosso). Dato che quasi tutti i cittadini condividono (quasi) lo stesso PERCEIVED-HARDSHIP nel tempo (convergono tutti verso lo stesso bersaglio, alla stessa velocita' di base), e' la dispersione delle soglie individuali — non la forma della curva di transizione — a decidere se il consenso crolla quasi in blocco (dispersione stretta) o si eroda gradualmente su molti tick (dispersione ampia).
 
-Il LOCKDOWN e' scelto dal Presidente del Consiglio tramite il chooser LOCKDOWN-CONFIG ("Nessuna restrizione" / "Lockdown parziale" / "Lockdown totale"), ma **resta fisso per l'intera run**: rappresenta la misura in vigore in un dato periodo (es. un mese). Per passare a un periodo diverso, si cambia LOCKDOWN-CONFIG e si avvia una nuova run:
+Il LOCKDOWN e' scelto dal Presidente del Consiglio tramite lo slider LOCKDOWN-EQUILIBRIUM (0 = nessuna restrizione, 0.75 = lockdown totale, con qualunque valore intermedio ammesso), ma **resta fisso per l'intera run**: rappresenta la misura in vigore in un dato periodo (es. un mese). Per passare a un periodo diverso, si sposta LOCKDOWN-EQUILIBRIUM e si avvia una nuova run:
 - con SETUP si parte da zero (nuova popolazione, nessuna "storia" pregressa, il livello precedente e' convenzionalmente "nessuna restrizione");
 - con "Carica stato salvato..." si riprende una popolazione gia' esistente (con tutto il suo disagio accumulato) esportata al termine di una run precedente con "Salva stato finale...": in questo caso il livello precedente e' quello effettivamente in vigore quando quella run si e' fermata.
 
-In entrambi i casi, all'avvio della run, la procedura SET-TRANSITION-SCALE calcola il salto tra il livello precedente e quello nuovo e ne ricava un moltiplicatore TRANSITION-SCALE, che resta fisso per tutta la durata della run e scala la velocita' con cui ogni cittadino insegue il bersaglio (non il disagio direttamente): un salto verso l'alto (nuove restrizioni) accelera la convergenza in proporzione a SCALE-INTENSITY, un salto della stessa entita' verso il basso (restrizioni allentate) la modula molto meno (solo il 15% dell'effetto), sempre restando un aggiustamento leggero. Il bersaglio condiviso da tutta la popolazione, EASED-EQUILIBRIUM, non salta di colpo da un livello all'altro: segue una vera curva a S (funzione SMOOTHSTEP) che parte da START-EQUILIBRIUM (l'equilibrio del livello precedente) e arriva al vero equilibrio del lockdown corrente in esattamente TRANSITION-DURATION tick, con pendenza zero garantita a inizio e fine transizione e un solo picco di variazione a meta' percorso. Ogni cittadino, a sua volta, rilassa il proprio PERCEIVED-HARDSHIP (a velocita' RELAXATION-RATE * TRANSITION-SCALE) verso quel bersaglio mobile, non verso il salto secco. L'equilibrio finale non e' un moltiplicatore lineare unico, ma un valore indipendente per ciascun livello (funzione EQUILIBRIUM-FOR-LEVEL, scritta nel codice): 0 per nessuna restrizione, 0.56 per il parziale, 0.75 per il totale — cosi' i due livelli di restrizione possono essere calibrati separatamente sui dati storici, senza che uno trascini l'altro per un rapporto fisso.
+In entrambi i casi, all'avvio della run, la procedura SET-TRANSITION-SCALE calcola il salto tra il livello precedente e quello nuovo e ne ricava un moltiplicatore TRANSITION-SCALE, che resta fisso per tutta la durata della run e scala la velocita' con cui ogni cittadino insegue il bersaglio (non il disagio direttamente): un salto verso l'alto (nuove restrizioni) accelera la convergenza in proporzione a SCALE-INTENSITY, un salto della stessa entita' verso il basso (restrizioni allentate) la modula molto meno (solo il 15% dell'effetto), sempre restando un aggiustamento leggero. Il bersaglio condiviso da tutta la popolazione, EASED-EQUILIBRIUM, non salta di colpo da un livello all'altro: segue una vera curva a S (funzione SMOOTHSTEP) che parte da START-EQUILIBRIUM (l'equilibrio del livello precedente) e arriva al vero equilibrio del lockdown corrente in esattamente TRANSITION-DURATION tick, con pendenza zero garantita a inizio e fine transizione e un solo picco di variazione a meta' percorso. Ogni cittadino, a sua volta, rilassa il proprio PERCEIVED-HARDSHIP (a velocita' RELAXATION-RATE * TRANSITION-SCALE) verso quel bersaglio mobile, non verso il salto secco. L'equilibrio finale e' letto direttamente dallo slider LOCKDOWN-EQUILIBRIUM (0-0.75): non e' piu' vincolato a tre valori calibrati, ma puo' assumere qualunque punto intermedio, utile per calibrare finemente sui dati storici o per agganciare in futuro il lockdown a un indicatore continuo di gravita' epidemica.
 
 Il plot principale "Consenso elettorale" mostra la percentuale di cittadini che sostiene ancora il governo (consenso) contro quella che lo ha abbandonato (dissenso), con una linea di riferimento al 50% (soglia di maggioranza a rischio).
 
 ## HOW TO USE IT
 
-Imposta la popolazione con INITIAL-AGENT-DENSITY e VISION, scegli la misura del primo periodo con LOCKDOWN-CONFIG, poi clicca SETUP e GO. La simulazione si ferma da sola dopo MAX-TICKS passi (un periodo/run).
+Imposta la popolazione con INITIAL-AGENT-DENSITY e VISION, scegli la misura del primo periodo con LOCKDOWN-EQUILIBRIUM, poi clicca SETUP e GO. La simulazione si ferma da sola dopo MAX-TICKS passi (un periodo/run).
 
-RNG-SEED fissa il generatore di numeri casuali: lasciando lo stesso valore e cliccando di nuovo SETUP, la run e' identica in ogni dettaglio (stessa posizione iniziale degli agenti, stesso disagio di partenza, stessa suddivisione tra esposti e protetti). E' cosi' che si confrontano in modo equo scenari diversi (es. LOCKDOWN-CONFIG diverso) senza che il risultato sia falsato dalla casualita'. Per ottenere invece una nuova run casuale, cambia il valore di RNG-SEED prima di cliccare SETUP.
+RNG-SEED fissa il generatore di numeri casuali: lasciando lo stesso valore e cliccando di nuovo SETUP, la run e' identica in ogni dettaglio (stessa posizione iniziale degli agenti, stesso disagio di partenza, stessa suddivisione tra esposti e protetti). E' cosi' che si confrontano in modo equo scenari diversi (es. LOCKDOWN-EQUILIBRIUM diverso) senza che il risultato sia falsato dalla casualita'. Per ottenere invece una nuova run casuale, cambia il valore di RNG-SEED prima di cliccare SETUP.
 
-Per simulare una sequenza di periodi (es. mese per mese, come i dati reali usati per calibrare il modello): fai girare una run fino in fondo, premi "Salva stato finale...", poi cambia LOCKDOWN-CONFIG sulla misura del periodo successivo e premi "Carica stato salvato..." (senza premere SETUP, che cancellerebbe la popolazione) seguito da GO. Il monitor "livello di lockdown attuale" mostra cosa e' fisso in questa run.
+Per simulare una sequenza di periodi (es. mese per mese, come i dati reali usati per calibrare il modello): fai girare una run fino in fondo, premi "Salva stato finale...", poi sposta LOCKDOWN-EQUILIBRIUM sulla misura del periodo successivo e premi "Carica stato salvato..." (senza premere SETUP, che cancellerebbe la popolazione) seguito da GO. Il monitor "equilibrio di lockdown attuale (target)" mostra cosa e' fisso in questa run.
 
-Regola SCALE-INTENSITY (di quanto, in percentuale, ogni gradino di inasprimento del lockdown rispetto al periodo precedente accelera la velocita' con cui ogni cittadino insegue il bersaglio EASED-EQUILIBRIUM; l'allentamento modula la velocita' di una frazione fissa e ridotta di questo valore — l'effetto e' pensato per essere leggero), RELAXATION-RATE (la velocita' base, prima della modulazione, con cui il disagio di ciascun cittadino converge verso il bersaglio EASED-EQUILIBRIUM) e TRANSITION-DURATION (quanti tick impiega EASED-EQUILIBRIUM a passare dal livello precedente al nuovo, seguendo una curva a S: raddoppiarla dimezza la pendenza massima del cambiamento, non la ritarda soltanto — e' la leva giusta per rendere la transizione piu' o meno morbida in modo prevedibile). I due valori di equilibrio (per il parziale e per il totale) sono invece hardcodati nel codice, in EQUILIBRIUM-FOR-LEVEL: per cambiarli serve modificare quella funzione.
+Regola SCALE-INTENSITY (di quanto, in percentuale, ogni gradino di inasprimento del lockdown rispetto al periodo precedente accelera la velocita' con cui ogni cittadino insegue il bersaglio EASED-EQUILIBRIUM; l'allentamento modula la velocita' di una frazione fissa e ridotta di questo valore — l'effetto e' pensato per essere leggero), RELAXATION-RATE (la velocita' base, prima della modulazione, con cui il disagio di ciascun cittadino converge verso il bersaglio EASED-EQUILIBRIUM) e TRANSITION-DURATION (quanti tick impiega EASED-EQUILIBRIUM a passare dal livello precedente al nuovo, seguendo una curva a S: raddoppiarla dimezza la pendenza massima del cambiamento, non la ritarda soltanto — e' la leva giusta per rendere la transizione piu' o meno morbida in modo prevedibile). L'equilibrio finale non e' piu' hardcodato nel codice: si legge direttamente dallo slider LOCKDOWN-EQUILIBRIUM.
 
 GOVERNMENT-LEGITIMACY resta la fiducia di base nel governo, indipendente dal lockdown: puoi cambiarla mentre la simulazione gira per vedere come modula l'effetto del disagio.
 
@@ -671,13 +661,13 @@ THRESHOLD-SPREAD e' la leva piu' diretta sulla forma della caduta di consenso: c
 
 ## THINGS TO NOTICE
 
-Confronta l'effetto di passare da "Lockdown totale" a "Lockdown parziale" con quello di passare da "Nessuna restrizione" a "Lockdown parziale": grazie all'asimmetria della modulazione, nel primo caso (un alleggerimento) TRANSITION-SCALE resta quasi invariato, mentre nel secondo caso (un inasprimento) accelera un po' la convergenza — anche se il livello di arrivo e' lo stesso, il consenso finale del periodo puo' risultare leggermente diverso.
+Confronta l'effetto di passare da LOCKDOWN-EQUILIBRIUM = 0.75 a 0.56 con quello di passare da 0 a 0.56: grazie all'asimmetria della modulazione, nel primo caso (un alleggerimento) TRANSITION-SCALE resta quasi invariato, mentre nel secondo caso (un inasprimento) accelera un po' la convergenza — anche se il livello di arrivo e' lo stesso, il consenso finale del periodo puo' risultare leggermente diverso.
 
 Osserva come il disagio non cresca o scenda mai indefinitamente: converge sempre verso l'equilibrio del lockdown fisso di quel periodo. Variando TRANSITION-DURATION puoi allungare o accorciare la transizione e, a differenza di RELAXATION-RATE, lo fai in modo direttamente proporzionale e prevedibile sulla pendenza massima del cambiamento (raddoppiare TRANSITION-DURATION dimezza il picco, non lo sposta soltanto): prova ad alzarla per vedere lo stacco tra un livello di lockdown e l'altro diventare piu' graduale davvero, non solo piu' tardivo.
 
 ## THINGS TO TRY
 
-Simula una sequenza di periodi in stile "prima e seconda ondata": una run con LOCKDOWN-CONFIG = "Lockdown totale", salva lo stato, poi una run caricata con "Nessuna restrizione" (salto verso il basso, effetto leggero su TRANSITION-SCALE), poi un'altra run caricata di nuovo con "Lockdown parziale" (nuovo salto verso l'alto, questa volta su una popolazione che parte da un disagio piu' basso di quello iniziale): confronta il consenso finale con quello di una singola run diretta a "Lockdown parziale" senza passare per gli altri due periodi.
+Simula una sequenza di periodi in stile "prima e seconda ondata": una run con LOCKDOWN-EQUILIBRIUM = 0.75, salva lo stato, poi una run caricata con LOCKDOWN-EQUILIBRIUM = 0 (salto verso il basso, effetto leggero su TRANSITION-SCALE), poi un'altra run caricata di nuovo con LOCKDOWN-EQUILIBRIUM = 0.56 (nuovo salto verso l'alto, questa volta su una popolazione che parte da un disagio piu' basso di quello iniziale): confronta il consenso finale con quello di una singola run diretta a 0.56 senza passare per gli altri due periodi.
 
 Fissa GOVERNMENT-LEGITIMACY alto (es. 0.9) e osserva quanto lockdown la popolazione "tollera" prima che il consenso scenda sotto il 50%; ripeti con legittimita' bassa (es. 0.5) e confronta.
 
@@ -685,13 +675,13 @@ Confronta THRESHOLD-SPREAD basso (es. 0.1) con uno alto (es. 1.5) a parita' di t
 
 ## EXTENDING THE MODEL
 
-Il modello epidemico e' volutamente assente: si potrebbe collegare LOCKDOWN-CONFIG a un indicatore di gravita' epidemica importato da un simulatore esterno (es. leggendo un file), invece di una scelta manuale, per testare policy automatiche/reattive anziche' decise a mano.
+Il modello epidemico e' volutamente assente: essendo LOCKDOWN-EQUILIBRIUM ora un valore continuo, si presta gia' bene a essere collegato a un indicatore di gravita' epidemica importato da un simulatore esterno (es. leggendo un file), invece di una scelta manuale, per testare policy automatiche/reattive anziche' decise a mano.
 
 Si potrebbe aggiungere una componente di comunicazione/percezione: la fiducia nel governo (GOVERNMENT-LEGITIMACY) potrebbe essa stessa reagire dinamicamente alla coerenza delle decisioni, invece di restare un parametro fisso impostato dall'utente.
 
 ## NETLOGO FEATURES
 
-Nota come CURRENT-LOCKDOWN-LEVEL traduca la scelta testuale del chooser LOCKDOWN-CONFIG in un livello numerico (0/1/2) usato da tutta la logica del modello: separare "cosa sceglie l'utente" da "come viene usato nel modello" rende piu' semplice, in futuro, sostituire la fonte della decisione (es. un file esterno) senza toccare il resto del codice.
+Nota come CURRENT-LOCKDOWN-LEVEL faccia da ponte tra "cosa sceglie l'utente" (lo slider LOCKDOWN-EQUILIBRIUM) e "come viene usato nel modello" (LOCKDOWN-TARGET, congelato a inizio run): anche se oggi la traduzione e' un semplice passaggio diretto, mantenere questo livello di indirezione rende piu' semplice, in futuro, sostituire la fonte della decisione (es. un file esterno o un indicatore epidemiologico) senza toccare il resto del codice.
 
 ## CREDITS AND REFERENCES
 
