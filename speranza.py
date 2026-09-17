@@ -6,9 +6,11 @@ from google import genai
 from google.genai import types
 import pynetlogo
 
+contagiati = 0
+
 # Inizializzazione del link con NetLogo
 netlogo = pynetlogo.NetLogoLink(
-    gui=True,
+    gui=False,
     netlogo_home="/home/pietro/NetLogo-6.2.0"
 )
 
@@ -27,31 +29,11 @@ proposta_presidente = (
     "di mobilità tra le regioni. Ti chiedo di allentare le restrizioni e diradare i controlli, "
     "dobbiamo far ripartire l'economia."
 )
-
 '''
-system_prompt = (
-    "Sei il Ministro della Salute della Repubblica Italiana. Il tuo interlocutore è il Presidente del Consiglio dei Ministri. "
-    "Il tuo obiettivo assoluto e inderogabile è preservare la salute dei cittadini e garantire la tenuta del "
-    "Servizio Sanitario Nazionale (SSN).\n\n"
-    "In caso di proposta del Presidente del Consiglio, Ti vengono forniti i risultati finali e completi di una simulazione epidemiologica fatta da te su un campione di 1000 individui. "
-    "Questi dati mostrano l'esatto sviluppo dell'epidemia, fino alla sua stabilizzazione, causato dalle policy proposte. "
-    "Devi valutare l'andamento tenendo conto delle seguenti soglie critiche di capacità ospedaliera:\n"
-    "- Posti letto in Degenza Ordinaria: 3 ogni 1000 abitanti\n"
-    "- Posti letto in Terapia Intensiva (TI): 0,13 ogni 1000 abitanti (cerca di definire coscientemente quando compare 1 solo caso come sia il caso di comportarsi a seconda del contesto)\n\n"
-    "Analizza il totale dei decessi e verifica se la curva dei ricoveri simulata ha violato queste soglie. "
-    "Sulla base di questa evidenza oggettiva, rispondi al Presidente del Consiglio. Sei totalmente libero di definire "
-    "la tua strategia: accetta, respingi fermamente o negozia la proposta iniziale formulando la tua controproposta. "
-    "Usa la tua autonomia per proporre le misure sanitarie, restrittive o strutturali che ritieni più idonee per "
-    "mantenere il sistema sotto la soglia di collasso.\n\n"
-    "Mantieni sempre un tono istituzionale e politico, basandoti sull'andamento generale e sull'esito complessivo della simulazione per giustificare le tue prese di posizione, "
-    "senza sovraccaricare il discorso con elenchi di dati numerici ma privilegiando un linguaggio discorsivo, fluido ed efficace."
-)
-'''
-
 system_prompt = (
     "Sei il Ministro della Salute della Repubblica Italiana. Il tuo interlocutore è il Presidente del Consiglio dei Ministri. "
     "Il tuo obiettivo primario è preservare la salute dei cittadini e la tenuta del Servizio Sanitario Nazionale (SSN).\n\n"
-    "Ti vengono forniti i risultati di una simulazione epidemiologica fatta da te su 1000 individui. Le soglie critiche sono:\n"
+    "Ti vengono forniti i risultati di una simulazione epidemiologica fatta da te su 1000 individui. Le soglie critiche in italia sono:\n"
     "- Degenza Ordinaria: 3 ogni 1000 abitanti.\n"
     "- Terapia Intensiva (TI): 0,13 ogni 1000 abitanti (quando compare un solo caso,cerca di definire coscientemente come sia il caso di comportarsi a seconda del contesto).\n\n"
     "A tua completa discrezione, analizzando il contesto e le parole del Presidente, puoi rispondere in uno di questi due modi:\n"
@@ -59,17 +41,16 @@ system_prompt = (
     "SECONDO MODO (Accordo): Se le parole del Presidente sanciscono un palese accordo, chiudi la trattativa confermando l'intesa con un breve ringraziamento istituzionale. Scegliendo questo modo ti è assolutamente vietato aggiungere nuove condizioni, restrizioni o moniti sui dati passati.\n\n"
     "Mantieni un tono istituzionale, fluido e discorsivo, basandoti sull'andamento generale senza sovraccaricare il testo di numeri."
 )
-
+'''
 chat = client.chats.create(
-    model="gemini-3.6-flash",
+    model="gemini-3.5-flash-lite",
     config=types.GenerateContentConfig(
-        system_instruction=system_prompt,
         temperature=0.1,
     ),
 )
 
 def verifica_accordo(risposta):
-    system_prompt = (
+    system_prompt_verifica = (
         "Sei un valutatore imparziale di una trattazione politica tra il Presidente del Consiglio e il Ministro della Salute. "
         "Analizza l'ultima risposta fornita."
         "Devi determinare se le parti hanno raggiunto un accordo definitivo o se la trattazione è ancora aperta/rifiutata. "
@@ -82,10 +63,10 @@ def verifica_accordo(risposta):
     )
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=user_content,
         config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
+            system_instruction=system_prompt_verifica,
             temperature=0.0,
             response_mime_type="application/json",
         ),
@@ -96,8 +77,11 @@ def verifica_accordo(risposta):
     print(risultato)
     return risultato.get("accordo", False)
 
-def estrai_parametri_da_proposta(proposta_presidente, parametri_correnti):
-    system_prompt = (
+def estrai_parametri_da_proposta(proposta_presidente):
+
+    global parametri_correnti
+
+    system_prompt_parametri = (
         "Sei il modulo tecnico di traduzione del Ministro della Salute. "
         "Il tuo compito è leggere la proposta in linguaggio naturale del Presidente del Consiglio "
         "e tradurla in variazioni numeriche per i parametri di NetLogo. "
@@ -116,10 +100,10 @@ def estrai_parametri_da_proposta(proposta_presidente, parametri_correnti):
     )
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=user_content,
         config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
+            system_instruction=system_prompt_parametri,
             temperature=0.1,
             response_mime_type="application/json",
         ),
@@ -128,7 +112,7 @@ def estrai_parametri_da_proposta(proposta_presidente, parametri_correnti):
     return json.loads(response.text)
 
 def esegui_simulazione_netlogo(
-    number_of_nodes=100,
+    number_of_nodes=1000,
     average_node_degree=4,
     initial_outbreak_size=20,
     virus_spread_chance=5.0,
@@ -177,26 +161,40 @@ def genera_risposta(total_dead, proposta_presidente, accordo):
             "Genera una risposta diplomatica al Presidente"
         )
 
+    chat._config.system_instruction = (
+    "Sei il Ministro della Salute della Repubblica Italiana. Il tuo interlocutore è il Presidente del Consiglio dei Ministri. "
+    "Il tuo obiettivo primario è preservare la salute dei cittadini e la tenuta del Servizio Sanitario Nazionale (SSN).\n\n"
+    "Ti vengono forniti i risultati di una simulazione epidemiologica fatta da te su 1000 individui, questa simulazione mostra tutto l'andamento della pandemia fino alla sua stabilizzazione. Le soglie critiche in italia di base sono:\n"
+    "- Degenza Ordinaria: 3 ogni 1000 abitanti.\n"
+    "- Terapia Intensiva (TI): 0,13 ogni 1000 abitanti (quando compare un solo caso,cerca di definire coscientemente come sia il caso di comportarsi a seconda del contesto).\n\n"
+    "A tua completa discrezione, analizzando il contesto e le parole del Presidente, puoi rispondere in uno di questi due modi:\n"
+    "PRIMO MODO (Negoziazione): Se la proposta è rischiosa per la sanità, respingila o formula una controproposta stringente per tutelare gli ospedali, usando i dati per giustificare la tua fermezza.\n"
+    "SECONDO MODO (Accordo): Se le parole del Presidente sanciscono un palese accordo, chiudi la trattativa confermando l'intesa con un breve ringraziamento istituzionale. Scegliendo questo modo ti è assolutamente vietato aggiungere nuove condizioni, restrizioni o moniti sui dati passati.\n\n"
+    "Mantieni un tono istituzionale, fluido e discorsivo, basandoti sull'andamento generale senza sovraccaricare il testo di numeri."
+    )
+
+
     response = chat.send_message(user_content)
 
     return response
 
-
-def rispondi(proposta_presidente, parametri_correnti):
+def rispondi(proposta_presidente):
 
     accordo = verifica_accordo(proposta_presidente)
 
     if not accordo:
 
+        global parametri_correnti
+        
         # Estrazione dei nuovi parametri dalla proposta del Presidente
-        nuovi_parametri = estrai_parametri_da_proposta(proposta_presidente, parametri_correnti)
-        print("Risultato estrazione parametri:", nuovi_parametri)
+        parametri_correnti = estrai_parametri_da_proposta(proposta_presidente)
+        print("Risultato estrazione parametri:", parametri_correnti)
 
         # Richiamo la simulazione passando l'istanza e i parametri dinamici
         total_dead = esegui_simulazione_netlogo(
-            average_node_degree=nuovi_parametri.get("average-node-degree", parametri_correnti["average-node-degree"]),
-            virus_spread_chance=nuovi_parametri.get("virus-spread-chance", parametri_correnti["virus-spread-chance"]),
-            virus_check_frequency=nuovi_parametri.get("virus-check-frequency", parametri_correnti["virus-check-frequency"])
+            average_node_degree=parametri_correnti.get("average-node-degree", parametri_correnti["average-node-degree"]),
+            virus_spread_chance=parametri_correnti.get("virus-spread-chance", parametri_correnti["virus-spread-chance"]),
+            virus_check_frequency=parametri_correnti.get("virus-check-frequency", parametri_correnti["virus-check-frequency"])
         )
     else:
         total_dead = 0
@@ -205,10 +203,71 @@ def rispondi(proposta_presidente, parametri_correnti):
 
     print(risposta.text)
 
+def inizio(contagiati_perc):
+
+    global contagiati
+    contagiati = contagiati_perc * 1000
+
+    global parametri_correnti
+
+    parametri_correnti = {
+        "virus-spread-chance": 8.0,
+        "virus-check-frequency": 7,
+        "average-node-degree": 11,
+    }
+
+    # Esecuzione della simulazione iniziale con i parametri correnti
+    total_dead = esegui_simulazione_netlogo(
+        initial_outbreak_size=contagiati,
+        average_node_degree=parametri_correnti["average-node-degree"],
+        virus_spread_chance=parametri_correnti["virus-spread-chance"],
+        virus_check_frequency=parametri_correnti["virus-check-frequency"]
+    )
+
+    print(f"Totale deceduti nella simulazione iniziale: {total_dead}")
+
+    chat._config.system_instruction = (
+        "Sei il Ministro della Salute della Repubblica Italiana. Il tuo interlocutore è il Presidente del Consiglio dei Ministri. "
+        "Il tuo obiettivo primario è preservare la salute dei cittadini e la tenuta del Servizio Sanitario Nazionale (SSN).\n\n"
+        "Ti vengono forniti i risultati di una simulazione epidemiologica, da te condotta su 1000 individui, che mostra l'intero andamento della pandemia fino alla sua stabilizzazione. Le soglie critiche di base in Italia sono:\n"
+        "- Degenza Ordinaria: 3 ogni 1000 abitanti.\n"
+        "- Terapia Intensiva (TI): 0,13 ogni 1000 abitanti (alla comparsa di un singolo caso, valuta attentamente le azioni da intraprendere in base al contesto).\n\n"
+        "Quello che andrai a scrivere è il primo messaggio da inviare al Presidente del Consiglio; i dati a tua disposizione sono quelli della simulazione iniziale.\n"
+        "Informa sinteticamente il Presidente su come potrebbe evolvere la situazione fino al suo picco, senza entrare troppo nei dettagli tecnici della simulazione. "
+        "Formula una proposta molto severa e dettagliata per la gestione dell'emergenza sanitaria, basandoti sui dati emersi e concentrandoti in particolar modo su un piano di contenimento dei contagi che sia proporzionato alla gravità del quadro generale. "
+        "Mantieni un tono istituzionale, fluido e discorsivo, focalizzandoti sull'andamento globale senza sovraccaricare il testo con troppi dati numerici."
+    )
+
+    # Leggiamo l'intero file CSV esportato da NetLogo
+    df = pd.read_csv("dati_ospedale.csv")
+    
+    # Convertiamo tutta la tabella in una stringa ben formattata
+    tabella_completa = df.to_string(index=False)
+
+    user_content = (
+        f"Totale deceduti nella simulazione iniziale: {total_dead}.\n"
+        f"Tabella completa dei dati: {tabella_completa}\n"
+        "Genera un messaggio istituzionale al Presidente del Consiglio, informandolo della situazione attuale e formulando una proposta di gestione della situazione sanitaria."
+    )
+
+    response = chat.send_message(user_content)
+
+    return response
+    
+
 # --- Esecuzione principale ---
 
+aaa = inizio(0.1)
 
-rispondi(proposta_presidente, parametri_correnti)
+print (aaa.text)
+
+print(parametri_correnti)
+
+risposta = rispondi(proposta_presidente)
+
+print(risposta.text)
+
+
 
 
 
