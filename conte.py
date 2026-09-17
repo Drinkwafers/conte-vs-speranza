@@ -18,7 +18,6 @@ JVM_PATH = r"D:\bin\server\jvm.dll"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "Rebellion.nlogo")
-STATI_DIR = os.path.join(BASE_DIR, "stati_salvati")
 CSV_DIR = os.path.join(BASE_DIR, "dati_csv")
 
 # Range dello slider LOCKDOWN-EQUILIBRIUM nel modello .nlogo
@@ -64,21 +63,6 @@ PRESIDENTE_SYSTEM_PROMPT = (
     "eccessivo."
 )
 
-proposta_ministro = (
-    "[MINISTRO]"
-    "Signor Presidente, le porto all'attenzione i dati sanitari aggiornati che, come vede, richiedono una nostra valutazione"
-    "immediata e prudente. Abbiamo raggiunto quota 340 contagi attivi e 12 decessi cumulati, ma il dato che più deve metterci in "
-    "allarme riguarda la tenuta delle nostre strutture ospedaliere: l'occupazione dei reparti di degenza è salita al 68%, mentre le "
-    "terapie intensive sono occupate al 41%."
-    "\n\n"
-    "Questi numeri ci dicono che la pressione sul Servizio Sanitario Nazionale sta diventando critica e rischia di compromettere la "
-    "capacità di risposta dei nostri ospedali nelle prossime settimane. Alla luce di questo quadro, ritengo assolutamente necessario "
-    "introdurre misure di contenimento rigorose, che prevedano la sospensione temporanea delle attività non essenziali ad alto rischio "
-    "di aggregazione e una limitazione della mobilità non motivata da comprovate esigenze lavorative o sanitarie. Dobbiamo agire ora "
-    "per evitare scenari ben più gravi e garantire che il sistema sanitario non collassi. Resto in attesa delle tue valutazioni per "
-    "definire insieme il provvedimento."
-)
-
 
 # ============================================================================
 # 2. SIMULAZIONE NETLOGO
@@ -91,10 +75,6 @@ def _set(netlogo, nome, valore):
         netlogo.command(f'set {nome} "{valore}"')
     else:
         netlogo.command(f'set {nome} {valore}')
-
-
-def _percorso_netlogo(path):
-    return os.path.abspath(path).replace("\\", "/")
 
 
 def _clip_lockdown(valore):
@@ -114,32 +94,8 @@ def nuova_simulazione(netlogo, lockdown_equilibrium):
     netlogo.command("setup")
 
 
-def continua_simulazione(netlogo, lockdown_equilibrium, percorso_stato):
-    netlogo.command(f'import-world "{_percorso_netlogo(percorso_stato)}"')
-    imposta_parametri_comuni(netlogo, lockdown_equilibrium)
-    netlogo.command("reset-ticks")
-    netlogo.command("set start-equilibrium eased-equilibrium")
-
-
-def session_id_da_stato(percorso_stato):
-    # formato nome file: stato_<session_id>_<lockdown>_<timestamp_periodo>.csv
-    # session_id ha lunghezza fissa perche' generato con strftime("%Y%m%d_%H%M%S") (15 caratteri)
-    nome = os.path.basename(percorso_stato)
-    resto = nome[len("stato_"):]
-    return resto[:15]
-
-
 def percorso_csv_sessione(session_id):
     return os.path.join(CSV_DIR, f"consenso_{session_id}.csv")
-
-
-def salva_stato_finale(netlogo, session_id, lockdown_equilibrium, timestamp):
-    os.makedirs(STATI_DIR, exist_ok=True)
-    suffisso = f"{lockdown_equilibrium:.2f}".replace(".", "p")
-    nome_file = f"stato_{session_id}_{suffisso}_{timestamp}.csv"
-    percorso = os.path.join(STATI_DIR, nome_file)
-    netlogo.command(f'export-world "{_percorso_netlogo(percorso)}"')
-    return percorso
 
 
 def carica_storico(session_id):
@@ -149,36 +105,15 @@ def carica_storico(session_id):
     return None
 
 
-def aggiorna_storico(session_id, df_periodo):
-    """
-    Accoda i dati dell'ultimo periodo (df_periodo) allo storico CSV della sessione
-    (se esiste gia'), salva il CSV aggiornato su disco e ne ritorna il DataFrame
-    completo (tutti i periodi eseguiti finora in questa sessione).
-    """
-    os.makedirs(CSV_DIR, exist_ok=True)
-    storico_precedente = carica_storico(session_id)
-    if storico_precedente is not None:
-        storico = pd.concat([storico_precedente, df_periodo], ignore_index=True)
-    else:
-        storico = df_periodo.copy()
-    storico.to_csv(percorso_csv_sessione(session_id), index=False)
-    return storico
-
-
-def esegui_periodo(lockdown_equilibrium, percorso_stato=None, max_ticks=None, timestamp=None):
+def esegui_periodo(lockdown_equilibrium, session_id=None, max_ticks=None):
     """
     Esegue un periodo (una run) della simulazione NetLogo con il valore di
-    LOCKDOWN-EQUILIBRIUM indicato.
-
-    Ritorna (df_periodo, percorso_stato_salvato, session_id).
-    df_periodo contiene SOLO i tick di questo periodo (per lo storico completo vedi
-    aggiorna_storico).
+    LOCKDOWN-EQUILIBRIUM indicato. Ogni chiamata avvia una simulazione da zero
+    (nessun salvataggio/caricamento di stato tra periodi).
     """
     lockdown_equilibrium = _clip_lockdown(lockdown_equilibrium)
     max_ticks = max_ticks or PARAMETRI_COMUNI["max-ticks"]
-    timestamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    session_id = timestamp if percorso_stato is None else session_id_da_stato(percorso_stato)
+    session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
 
     netlogo = pynetlogo.NetLogoLink(
         netlogo_home=NETLOGO_HOME,
@@ -187,11 +122,7 @@ def esegui_periodo(lockdown_equilibrium, percorso_stato=None, max_ticks=None, ti
     )
     try:
         netlogo.load_model(MODEL_PATH)
-
-        if percorso_stato is None:
-            nuova_simulazione(netlogo, lockdown_equilibrium)
-        else:
-            continua_simulazione(netlogo, lockdown_equilibrium, percorso_stato)
+        nuova_simulazione(netlogo, lockdown_equilibrium)
 
         dati = []
         for tick in range(int(max_ticks)):
@@ -204,11 +135,10 @@ def esegui_periodo(lockdown_equilibrium, percorso_stato=None, max_ticks=None, ti
             })
 
         df_periodo = pd.DataFrame(dati)
-        percorso_stato_salvato = salva_stato_finale(netlogo, session_id, lockdown_equilibrium, timestamp)
     finally:
         netlogo.kill_workspace()
 
-    return df_periodo, percorso_stato_salvato, session_id
+    return df_periodo, session_id
 
 
 # ============================================================================
@@ -226,12 +156,6 @@ def _nuovo_agente(system_prompt):
 
 
 def estrai_parametri_conte(messaggio_ministro, lockdown_equilibrium_corrente):
-    """
-    Traduce il messaggio del Ministro della Salute (linguaggio naturale) nel nuovo
-    valore numerico del parametro NetLogo lockdown-equilibrium.
-
-    Ritorna un float clippato in [LOCKDOWN_MIN, LOCKDOWN_MAX].
-    """
     system_prompt = (
         "Sei il modulo tecnico di traduzione del Presidente del Consiglio. "
         "Il tuo compito e' leggere il messaggio del Ministro della Salute scritto in linguaggio "
@@ -264,11 +188,6 @@ def estrai_parametri_conte(messaggio_ministro, lockdown_equilibrium_corrente):
 
 
 def genera_risposta_presidente(messaggio_ministro, ultima_riga_storico):
-    """
-    Genera la risposta in linguaggio naturale del Presidente, basata sull'ultima
-    riga dello storico CSV prodotto dalla simulazione (esito del periodo appena
-    concluso dopo aver applicato la misura proposta/negoziata).
-    """
     agente = _nuovo_agente(PRESIDENTE_SYSTEM_PROMPT)
 
     prompt_utente = (
@@ -290,44 +209,23 @@ def genera_risposta_presidente(messaggio_ministro, ultima_riga_storico):
 # 4. CICLO COMPLETO DI NEGOZIAZIONE
 # ============================================================================
 
-def negozia(messaggio_ministro, lockdown_equilibrium_corrente=0.5, percorso_stato=None):
-    """
-    Esegue un intero ciclo di negoziazione:
-      1. Traduce il messaggio del Ministro in un nuovo valore di lockdown-equilibrium.
-      2. Esegue un periodo di simulazione NetLogo con quel valore (nuova run se
-         percorso_stato e' None, altrimenti proseguendo dallo stato salvato).
-      3. Aggiorna lo storico CSV della sessione con i dati del periodo appena eseguito.
-      4. Genera la risposta in linguaggio naturale del Presidente, basata sull'ultima
-         riga dello storico aggiornato.
+def negozia(messaggio_ministro, lockdown_equilibrium_corrente=0.5, session_id=None):
 
-    Ritorna un dizionario con l'esito del periodo, utile anche per incatenare il
-    periodo successivo (percorso_stato -> prossima chiamata a negozia()).
-    """
     nuovo_lockdown_equilibrium = estrai_parametri_conte(
         messaggio_ministro, lockdown_equilibrium_corrente
     )
 
-    df_periodo, percorso_stato_salvato, session_id = esegui_periodo(
-        nuovo_lockdown_equilibrium, percorso_stato=percorso_stato
+    df_periodo, session_id = esegui_periodo(
+        nuovo_lockdown_equilibrium, session_id=session_id
     )
 
-    storico = aggiorna_storico(session_id, df_periodo)
-    ultima_riga = storico.iloc[-1]
+    ultima_riga = df_periodo.iloc[-1]
 
     risposta_presidente = genera_risposta_presidente(messaggio_ministro, ultima_riga)
 
     return {
         "lockdown_equilibrium": nuovo_lockdown_equilibrium,
         "risposta_presidente": risposta_presidente,
-        "percorso_stato": percorso_stato_salvato,
         "session_id": session_id,
         "csv_storico": percorso_csv_sessione(session_id),
     }
-
-def main():
-    esito = negozia(proposta_ministro)
-    print(esito["risposta_presidente"])
-
-
-if __name__ == "__main__":
-    main()
