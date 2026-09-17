@@ -1,7 +1,5 @@
 import json
 import os
-from datetime import datetime
-
 import pandas as pd
 import pynetlogo
 from google import genai
@@ -18,19 +16,19 @@ JVM_PATH = r"D:\bin\server\jvm.dll"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "Rebellion.nlogo")
-CSV_DIR = os.path.join(BASE_DIR, "dati_csv")
+CSV_PATH = os.path.join(BASE_DIR, "consenso.csv")
 
 # Range dello slider LOCKDOWN-EQUILIBRIUM nel modello .nlogo
 LOCKDOWN_MIN = 0.35
 LOCKDOWN_MAX = 0.85
 
+HARDSHIP_MIN = 0.0
+HARDSHIP_MAX = 1.0
+
 PARAMETRI_SOLO_SETUP = {
     "initial-agent-density": 70,
     "rng-seed": 42,
     "threshold-spread": 0.6,
-    # Variabili che controllano l'intervallo del disagio
-    "initial-hardship-min": 0.0, # più è alta più la gente partirà con disagio più alto
-    "initial-hardship-max": 1.0, # più è bassa più la gente partirà con disagio più basso
 }
 
 PARAMETRI_COMUNI = {
@@ -42,8 +40,8 @@ PARAMETRI_COMUNI = {
     "visualization": "2D",
 }
 
-# --- Gemini / negoziazione ---
-MODEL_NAME = "gemini-3.5-flash-lite"
+# --- Gemini ---
+MODEL_NAME = "gemini-3.1-flash-lite"
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
@@ -94,18 +92,8 @@ def nuova_simulazione(netlogo, lockdown_equilibrium):
     netlogo.command("setup")
 
 
-def percorso_csv_sessione(session_id):
-    return os.path.join(CSV_DIR, f"consenso_{session_id}.csv")
 
-
-def carica_storico(session_id):
-    percorso_storico = percorso_csv_sessione(session_id)
-    if os.path.exists(percorso_storico):
-        return pd.read_csv(percorso_storico)
-    return None
-
-
-def esegui_periodo(lockdown_equilibrium, session_id=None, max_ticks=None):
+def esegui_periodo(lockdown_equilibrium, max_ticks=None, minimo=None, massimo=None):
     """
     Esegue un periodo (una run) della simulazione NetLogo con il valore di
     LOCKDOWN-EQUILIBRIUM indicato. Ogni chiamata avvia una simulazione da zero
@@ -113,15 +101,24 @@ def esegui_periodo(lockdown_equilibrium, session_id=None, max_ticks=None):
     """
     lockdown_equilibrium = _clip_lockdown(lockdown_equilibrium)
     max_ticks = max_ticks or PARAMETRI_COMUNI["max-ticks"]
-    session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
 
     netlogo = pynetlogo.NetLogoLink(
         netlogo_home=NETLOGO_HOME,
         jvm_path=JVM_PATH,
         gui=False,
     )
+    
     try:
         netlogo.load_model(MODEL_PATH)
+        if minimo is not None:
+            _set(netlogo, "initial-hardship-min", minimo)
+        else:
+            _set(netlogo, "initial-hardship-min", HARDSHIP_MIN)
+        if massimo is not None:
+            _set(netlogo, "initial-hardship-max", massimo)
+        else:
+            _set(netlogo, "initial-hardship-max", HARDSHIP_MAX)
+
         nuova_simulazione(netlogo, lockdown_equilibrium)
 
         dati = []
@@ -135,10 +132,11 @@ def esegui_periodo(lockdown_equilibrium, session_id=None, max_ticks=None):
             })
 
         df_periodo = pd.DataFrame(dati)
+        df_periodo.to_csv(CSV_PATH, index=False)
     finally:
         netlogo.kill_workspace()
 
-    return df_periodo, session_id
+    return df_periodo
 
 
 # ============================================================================
@@ -155,7 +153,7 @@ def _nuovo_agente(system_prompt):
     )
 
 
-def estrai_parametri_conte(messaggio_ministro, lockdown_equilibrium_corrente):
+def estrai_parametri_conte(messaggio_ministro):
     system_prompt = (
         "Sei il modulo tecnico di traduzione del Presidente del Consiglio. "
         "Il tuo compito e' leggere il messaggio del Ministro della Salute scritto in linguaggio "
@@ -163,15 +161,12 @@ def estrai_parametri_conte(messaggio_ministro, lockdown_equilibrium_corrente):
         "lockdown-equilibrium: valore continuo, misura la gravita' delle misure richieste, "
         "minimo 0.35 (valore associabile all'introduzione delle mascherine), "
         "massimo 0.85 (lockdown totale senza poter uscire di casa). "
-        "Ti viene fornito anche il valore attuale del parametro: usalo come riferimento per capire "
-        "se il Ministro sta chiedendo un irrigidimento o un allentamento delle misure, e di quanto. "
         "Restituisci ESCLUSIVAMENTE un oggetto JSON valido, nella forma "
         '{"lockdown-equilibrium": <numero>}, senza alcun testo descrittivo, spiegazione o '
         "markdown al di fuori del JSON."
     )
 
     prompt_utente = (
-        f"Valore attuale di lockdown-equilibrium: {lockdown_equilibrium_corrente:.2f}\n\n"
         f"Messaggio del Ministro della Salute:\n{messaggio_ministro}"
     )
 
@@ -209,15 +204,11 @@ def genera_risposta_presidente(messaggio_ministro, ultima_riga_storico):
 # 4. CICLO COMPLETO DI NEGOZIAZIONE
 # ============================================================================
 
-def negozia(messaggio_ministro, lockdown_equilibrium_corrente=0.5, session_id=None):
+def negozia(messaggio_ministro, minimo = None, massimo = None):
 
-    nuovo_lockdown_equilibrium = estrai_parametri_conte(
-        messaggio_ministro, lockdown_equilibrium_corrente
-    )
+    nuovo_lockdown_equilibrium = estrai_parametri_conte(messaggio_ministro)
 
-    df_periodo, session_id = esegui_periodo(
-        nuovo_lockdown_equilibrium, session_id=session_id
-    )
+    df_periodo = esegui_periodo(nuovo_lockdown_equilibrium, minimo=minimo, massimo=massimo)
 
     ultima_riga = df_periodo.iloc[-1]
 
@@ -225,7 +216,5 @@ def negozia(messaggio_ministro, lockdown_equilibrium_corrente=0.5, session_id=No
 
     return {
         "lockdown_equilibrium": nuovo_lockdown_equilibrium,
-        "risposta_presidente": risposta_presidente,
-        "session_id": session_id,
-        "csv_storico": percorso_csv_sessione(session_id),
+        "risposta_presidente": risposta_presidente
     }

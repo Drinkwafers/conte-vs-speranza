@@ -56,14 +56,13 @@ def avvia_conversazione(contagiati):
     speranzaccordo = False
 
     while ((not contaccordo) or (not speranzaccordo)):
-        contessaggio = conte.negozia(speranzessaggio.text)
+        contessaggio = conte.negozia(speranzessaggio.text, minimo=0, massimo=1)
 
         print("\n=== PRESIDENTE ===\n")
         print(contessaggio["risposta_presidente"])
 
         contaccordo = verifica_accordo(contessaggio["risposta_presidente"])
         print(f"Accordo iniziale: {contaccordo}")
-
 
         speranzessaggio = speranza.rispondi(contessaggio["risposta_presidente"], contaccordo)
 
@@ -74,10 +73,6 @@ def avvia_conversazione(contagiati):
         print(f"Accordo Ministro: {speranzaccordo}")
 
     print("\n\n\n=== CONVERSAZIONE TERMINATA ===")
-
-
-
-
 
 if __name__ == "__main__":
     avvia_conversazione(0.1)
