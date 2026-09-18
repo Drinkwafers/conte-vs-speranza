@@ -71,6 +71,11 @@ to setup
     display-agent
   ]
 
+  ; valuta subito chi ritira il consenso in base al disagio iniziale vero,
+  ; cosi' il primo punto del plot (tick 0) e' gia' corretto invece che
+  ; forzato a "tutti quieti"
+  ask agents [ determine-behavior ]
+
   ; start clock and plot initial state of system
   reset-ticks
 
@@ -369,10 +374,10 @@ NIL
 HORIZONTAL
 
 MONITOR
-670
-426
-760
-471
+820
+433
+910
+478
 active (red)
 count agents with [active?]
 3
@@ -380,10 +385,10 @@ count agents with [active?]
 11
 
 MONITOR
-670
-480
-770
-525
+820
+487
+920
+532
 quiet (green)
 count agents with [not active?]
 1
@@ -451,9 +456,9 @@ count agents
 11
 
 PLOT
-328
+361
 426
-663
+696
 586
 Consenso elettorale
 time
