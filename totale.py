@@ -41,7 +41,7 @@ def verifica_accordo(risposta):
     return risultato.get("accordo", False)
 
 
-def avvia_conversazione(contagiati):
+def avvia_conversazione(contagiati,  minimo, massimo):
     """Esegue una conversazione iniziale tra Ministro e Presidente."""
     if not os.environ.get("GEMINI_API_KEY"):
         print("Manca la variabile GEMINI_API_KEY. Non posso avviare la chat.")
@@ -56,7 +56,7 @@ def avvia_conversazione(contagiati):
     speranzaccordo = False
 
     while ((not contaccordo) or (not speranzaccordo)):
-        contessaggio = conte.negozia(speranzessaggio.text, minimo=0, massimo=1)
+        contessaggio = conte.negozia(speranzessaggio.text, minimo, massimo)
 
         print("\n=== PRESIDENTE ===\n")
         print(contessaggio["risposta_presidente"])
@@ -75,4 +75,4 @@ def avvia_conversazione(contagiati):
     print("\n\n\n=== CONVERSAZIONE TERMINATA ===")
 
 if __name__ == "__main__":
-    avvia_conversazione(0.1)
+    avvia_conversazione(contagiati=0.1, minimo=0, massimo=1)
