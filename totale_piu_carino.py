@@ -71,7 +71,8 @@ def verifica_accordo(risposta):
     return risultato.get("accordo", False)
 
 
-def avvia_conversazione(contagiati, on_message=None, on_status=None):
+
+def avvia_conversazione(contagiati, minimo, massimo, on_message=None, on_status=None):
     """
     Esegue una conversazione iniziale tra Ministro e Presidente.
 
@@ -111,7 +112,7 @@ def avvia_conversazione(contagiati, on_message=None, on_status=None):
         notifica_stato(f"Round {numero_round} — il Presidente valuta la proposta...")
 
         with Status("[dim]Il Presidente valuta la proposta...[/dim]", console=console, spinner="dots"):
-            contessaggio = conte.negozia(speranzessaggio.text, minimo=0, massimo=1)
+            contessaggio = conte.negozia(speranzessaggio.text, minimo, massimo)
 
         contaccordo = verifica_accordo(contessaggio["risposta_presidente"])
         notifica_messaggio(
@@ -138,4 +139,4 @@ def avvia_conversazione(contagiati, on_message=None, on_status=None):
 
 
 if __name__ == "__main__":
-    avvia_conversazione(0.1)
+    avvia_conversazione(contagiati=0.1, minimo=0, massimo=1)
