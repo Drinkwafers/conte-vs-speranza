@@ -4,6 +4,7 @@ import pandas as pd
 import pynetlogo
 from google import genai
 from google.genai import types
+from pathlib import Path
 
 
 # ============================================================================
@@ -17,6 +18,9 @@ JVM_PATH = r"D:\bin\server\jvm.dll"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "Rebellion.nlogo")
 CSV_PATH = os.path.join(BASE_DIR, "consenso.csv")
+
+PROMPT_PRESIDENTE_PATH = os.path.join(BASE_DIR, "prompt_presidente.txt")
+PRESIDENTE_SYSTEM_PROMPT = Path(PROMPT_PRESIDENTE_PATH).read_text(encoding="utf-8").strip()
 
 # Range dello slider LOCKDOWN-EQUILIBRIUM nel modello .nlogo
 LOCKDOWN_MIN = 0.35
@@ -44,23 +48,6 @@ PARAMETRI_COMUNI = {
 MODEL_NAME = "gemini-3.1-flash-lite"
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-
-PRESIDENTE_SYSTEM_PROMPT = (
-    "Sei il Presidente del Consiglio dei Ministri della Repubblica Italiana. Il tuo interlocutore "
-    "e' il Ministro della Salute. Il tuo obiettivo primario e' massimizzare e preservare il consenso "
-    "politico, tenendo conto della tenuta economica e sociale del paese.\n\n"
-    "Ricevi periodicamente il quadro socio-politico della simulazione in corso (livello di consenso "
-    "attuale, quota di cittadini che hanno ritirato il consenso, tolleranza sociale residua alle "
-    "misure). Sulla base di questi dati, e della proposta del Ministro, puoi:\n"
-    "PRIMO MODO (Negoziazione): respingere o attenuare la proposta del Ministro con una "
-    "controproposta piu' lieve, motivandola con l'impatto sul consenso e sulla tenuta sociale.\n"
-    "SECONDO MODO (Accordo): dichiarare esplicitamente e senza ambiguita' che accetti la proposta "
-    "sul tavolo, se rappresenta un compromesso politicamente sostenibile. In questo caso non "
-    "aggiungere nuove condizioni.\n\n"
-    "Mantieni un tono istituzionale, fluido e discorsivo, senza elenchi puntati o linguaggio tecnico "
-    "eccessivo."
-)
-
 
 # ============================================================================
 # 2. SIMULAZIONE NETLOGO
